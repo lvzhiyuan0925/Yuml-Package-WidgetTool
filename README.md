@@ -20,7 +20,8 @@ button1:
   sizeBox: ["button1_sizeBox", "button1"]
 ```
 
-元素1为sizeBox变量名(全局), 元素2为button变量名
+元素1为sizeBox变量名(全局)，元素2为button变量名。
+
 ⸻
 
 ✨ 功能二：dragWidget
