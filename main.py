@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QPushButton
+from PyQt5.QtWidgets import QPushButton, QWidget
 from YuanAPI.YNameSpace import YAddWidgetAttribute
 from YuanAPI.YAPIS import YAPIEngine
 from YuanAPI import YNameSpace
@@ -143,17 +143,16 @@ class SizeBox(QObject):
 
 
 class _YuGM_(YAddWidgetAttribute):
-    def __init__(self, raw, widget):
-        super().__init__(raw, widget)
+    def __init__(self, raw, widget_type, widget):
+        super().__init__(raw, widget_type, widget)
         self.api = YAPIEngine(raw)
 
     def realize(self, value):
-        return {"dragWidget": lambda: self.make_draggable(self.api.globals.getGlobals(self.api.string(value))),
+        return {"dragWidget": lambda: self.make_draggable(self.widget) if value else None,
                 "sizeBox": lambda: self.sizeBox(value)}
 
     def sizeBox(self, value):
-        self.api.globals.globals(self.api.string(value[0]),
-                                 SizeBox(self.api.globals.getGlobals(self.api.string(value[1])), self.raw))
+        self.api.globals.globals(self.api.string(value), SizeBox(self.widget, self.raw))
 
     @staticmethod
     def make_draggable(widget):
