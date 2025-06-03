@@ -15,6 +15,138 @@ class Init(YLoad):
         self.api.globals.globals("Qt", Qt)
 
 
+class DraggableHelper:
+    def __init__(self, widget, api, parent_window=None, snap_x=None, snap_y=None, snap_threshold=10,
+                 style="background-color: #FF5722;",
+                 allow_horizontal_drag=[None, True], allow_vertical_drag=[None, True],
+                 name=None):
+        if name:
+            api.globals.globals(name, self)
+        self.widget = widget
+        self.parent_window = parent_window
+        self.snap_x = snap_x if isinstance(snap_x, (list, tuple)) else [snap_x] if snap_x is not None else []
+        self.snap_y = snap_y if isinstance(snap_y, (list, tuple)) else [snap_y] if snap_y is not None else []
+        self.snap_threshold = snap_threshold
+        self.style = style
+        self.allow_horizontal_drag = allow_horizontal_drag
+        self.allow_vertical_drag = allow_vertical_drag
+
+        self.snap_manager = None
+        if parent_window:
+            if not hasattr(parent_window, '_snap_manager'):
+                parent_window._snap_manager = SnapLineManager(parent_window, style)
+            self.snap_manager = parent_window._snap_manager
+
+        self._current_snap_lines = []
+
+        self._original_mouse_press = widget.mousePressEvent
+        self._original_mouse_move = widget.mouseMoveEvent
+        self._original_mouse_release = widget.mouseReleaseEvent
+
+        self._install_events()
+
+    @staticmethod
+    def _is_drag_allowed(option):
+        key, default = option
+        if key is None:
+            return default
+        keys = QApplication.queryKeyboardModifiers()
+        if default:
+            return keys & key
+        else:
+            return not (keys & key)
+
+    def _install_events(self):
+        def mousePressEvent(event):
+            if event.button() == Qt.LeftButton:
+                self._drag_pos = event.globalPos() - self.widget.frameGeometry().topLeft()
+                self._original_pos = self.widget.pos()
+                self._current_snap_lines = []
+                if self.snap_manager:
+                    self.snap_manager.hide_all()
+
+            if callable(self._original_mouse_press):
+                self._original_mouse_press(event)
+            else:
+                event.ignore()
+
+        def mouseMoveEvent(event):
+            if event.buttons() & Qt.LeftButton and hasattr(self, '_drag_pos'):
+                new_pos = event.globalPos() - self._drag_pos
+
+                horizontal_allowed = self._is_drag_allowed(self.allow_horizontal_drag)
+                vertical_allowed = self._is_drag_allowed(self.allow_vertical_drag)
+
+                if not horizontal_allowed:
+                    new_pos.setX(self.widget.x())
+                if not vertical_allowed:
+                    new_pos.setY(self.widget.y())
+
+                current_snap_lines = []
+                if self.snap_x or self.snap_y:
+                    left = new_pos.x()
+                    top = new_pos.y()
+                    center_x = new_pos.x() + self.widget.width() // 2
+                    center_y = new_pos.y() + self.widget.height() // 2
+                    right = new_pos.x() + self.widget.width()
+                    bottom = new_pos.y() + self.widget.height()
+
+                    if horizontal_allowed:
+                        for line in self.snap_x:
+                            if abs(left - line) < self.snap_threshold:
+                                new_pos.setX(line)
+                                current_snap_lines.append(('x', line))
+                            elif abs(center_x - line) < self.snap_threshold:
+                                new_pos.setX(line - self.widget.width() // 2)
+                                current_snap_lines.append(('x', line))
+                            elif abs(right - line) < self.snap_threshold:
+                                new_pos.setX(line - self.widget.width())
+                                current_snap_lines.append(('x', line))
+
+                    if vertical_allowed:
+                        for line in self.snap_y:
+                            if abs(top - line) < self.snap_threshold:
+                                new_pos.setY(line)
+                                current_snap_lines.append(('y', line))
+                            elif abs(center_y - line) < self.snap_threshold:
+                                new_pos.setY(line - self.widget.height() // 2)
+                                current_snap_lines.append(('y', line))
+                            elif abs(bottom - line) < self.snap_threshold:
+                                new_pos.setY(line - self.widget.height())
+                                current_snap_lines.append(('y', line))
+
+                if self.snap_manager:
+                    for line_type, pos in self._current_snap_lines:
+                        self.snap_manager.hide_line(line_type, pos)
+                    for line_type, pos in current_snap_lines:
+                        self.snap_manager.show_line(line_type, pos)
+                    self._current_snap_lines = current_snap_lines
+
+                self.widget.move(new_pos)
+
+            if callable(self._original_mouse_move):
+                self._original_mouse_move(event)
+            else:
+                event.ignore()
+
+        def mouseReleaseEvent(event):
+            if hasattr(self, '_drag_pos'):
+                self._drag_pos = None
+                self._original_pos = None
+                if self.snap_manager:
+                    self.snap_manager.hide_all()
+                    self._current_snap_lines = []
+
+            if callable(self._original_mouse_release):
+                self._original_mouse_release(event)
+            else:
+                event.ignore()
+
+        self.widget.mousePressEvent = mousePressEvent
+        self.widget.mouseMoveEvent = mouseMoveEvent
+        self.widget.mouseReleaseEvent = mouseReleaseEvent
+
+
 class SnapLineManager:
     """辅助线管理器，使用QLabel实现"""
 
@@ -258,150 +390,6 @@ class _YuGM_(YAddWidgetAttribute):
                 else:
                     value[key] = self.api.string(v)
 
-            self.make_draggable(self.widget, parent_window=self.raw, **value)
+            DraggableHelper(self.widget, self.api, parent_window=self.raw, **value)
         return {"dragWidget": dragWidget,
-                "sizeBox": lambda: self.sizeBox(value)}
-
-    def sizeBox(self, value):
-        self.api.globals.globals(self.api.string(value), SizeBox(self.widget, self.raw))
-
-    @staticmethod
-    def make_draggable(widget, parent_window=None, snap_x=None, snap_y=None, snap_threshold=10,
-                       style="background-color: #FF5722;",
-                       allow_horizontal_drag=[None, True], allow_vertical_drag=[None, True]):
-        """
-        使部件可拖拽，并添加辅助线吸附功能和视觉辅助线
-
-        参数:
-            widget: 要使其可拖拽的部件
-            parent_window: 父窗口，用于放置辅助线
-            snap_x: x轴辅助线坐标列表 (例如 [100, 200, 300])
-            snap_y: y轴辅助线坐标列表 (例如 [50, 150, 250])
-            snap_threshold: 吸附阈值(像素)，默认10px
-            style: 辅助线样式
-            allow_horizontal_drag: 列表形式 [键名, 默认是否允许]，如 [Qt.Key_Shift, False]
-            allow_vertical_drag: 同上
-        """
-        snap_x = snap_x if isinstance(snap_x, (list, tuple)) else [snap_x] if snap_x is not None else []
-        snap_y = snap_y if isinstance(snap_y, (list, tuple)) else [snap_y] if snap_y is not None else []
-
-        original_mouse_press = widget.mousePressEvent
-        original_mouse_move = widget.mouseMoveEvent
-        original_mouse_release = widget.mouseReleaseEvent
-
-        snap_manager = None
-        if parent_window:
-            if not hasattr(parent_window, '_snap_manager'):
-                parent_window._snap_manager = SnapLineManager(parent_window, style)
-            snap_manager = parent_window._snap_manager
-
-        widget._current_snap_lines = []
-
-        def is_drag_allowed(option):
-            key, default = option
-            if key is None:
-                return default
-            keys = QApplication.queryKeyboardModifiers()
-            if default:
-                return keys & key  # 只有按下时允许
-            else:
-                return not (keys & key)  # 按下时禁用
-
-        def mousePressEvent(event):
-            if event.button() == Qt.LeftButton:
-                widget._drag_pos = event.globalPos() - widget.frameGeometry().topLeft()
-                widget._original_pos = widget.pos()
-                widget._current_snap_lines = []
-                if snap_manager:
-                    snap_manager.hide_all()
-
-            if callable(original_mouse_press):
-                original_mouse_press(event)
-            else:
-                event.ignore()
-
-        def mouseMoveEvent(event):
-            if event.buttons() & Qt.LeftButton and hasattr(widget, '_drag_pos'):
-                new_pos = event.globalPos() - widget._drag_pos
-
-                horizontal_allowed = is_drag_allowed(allow_horizontal_drag)
-                vertical_allowed = is_drag_allowed(allow_vertical_drag)
-
-                if not horizontal_allowed:
-                    new_pos.setX(widget.x())
-                if not vertical_allowed:
-                    new_pos.setY(widget.y())
-
-                current_snap_lines = []
-                snapped = False
-
-                if snap_x or snap_y:
-                    left = new_pos.x()
-                    top = new_pos.y()
-                    center_x = new_pos.x() + widget.width() // 2
-                    center_y = new_pos.y() + widget.height() // 2
-                    right = new_pos.x() + widget.width()
-                    bottom = new_pos.y() + widget.height()
-
-                    if horizontal_allowed:
-                        for line in snap_x:
-                            if abs(left - line) < snap_threshold:
-                                new_pos.setX(line)
-                                current_snap_lines.append(('x', line))
-                                snapped = True
-                            elif abs(center_x - line) < snap_threshold:
-                                new_pos.setX(line - widget.width() // 2)
-                                current_snap_lines.append(('x', line))
-                                snapped = True
-                            elif abs(right - line) < snap_threshold:
-                                new_pos.setX(line - widget.width())
-                                current_snap_lines.append(('x', line))
-                                snapped = True
-
-                    if vertical_allowed:
-                        for line in snap_y:
-                            if abs(top - line) < snap_threshold:
-                                new_pos.setY(line)
-                                current_snap_lines.append(('y', line))
-                                snapped = True
-                            elif abs(center_y - line) < snap_threshold:
-                                new_pos.setY(line - widget.height() // 2)
-                                current_snap_lines.append(('y', line))
-                                snapped = True
-                            elif abs(bottom - line) < snap_threshold:
-                                new_pos.setY(line - widget.height())
-                                current_snap_lines.append(('y', line))
-                                snapped = True
-
-                if snap_manager:
-                    for line_type, pos in widget._current_snap_lines:
-                        snap_manager.hide_line(line_type, pos)
-                    for line_type, pos in current_snap_lines:
-                        snap_manager.show_line(line_type, pos)
-                    widget._current_snap_lines = current_snap_lines
-
-                widget.move(new_pos)
-
-            if callable(original_mouse_move):
-                original_mouse_move(event)
-            else:
-                event.ignore()
-
-        def mouseReleaseEvent(event):
-            if hasattr(widget, '_drag_pos'):
-                widget._drag_pos = None
-                widget._original_pos = None
-                if snap_manager:
-                    snap_manager.hide_all()
-                    widget._current_snap_lines = []
-
-            if callable(original_mouse_release):
-                original_mouse_release(event)
-            else:
-                event.ignore()
-
-        widget.mousePressEvent = mousePressEvent
-        widget.mouseMoveEvent = mouseMoveEvent
-        widget.mouseReleaseEvent = mouseReleaseEvent
-
-        return snap_manager
+                "sizeBox": lambda: self.api.globals.globals(self.api.string(value), SizeBox(self.widget, self.raw))}
