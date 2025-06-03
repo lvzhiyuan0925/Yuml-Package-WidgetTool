@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QPushButton, QWidget
+from PyQt5.QtWidgets import QPushButton
 from YuanAPI.YNameSpace import YAddWidgetAttribute
 from YuanAPI.YAPIS import YAPIEngine
 from YuanAPI import YNameSpace
@@ -8,13 +8,17 @@ from PyQt5.QtGui import QCursor
 Y_NAMESPACE = YNameSpace
 
 class SizeBox(QObject):
-    def __init__(self, button, parent_widget):
+    def __init__(self, widget, parent_widget,
+                 style: str = "background-color: #fff; border-radius: 0px;"
+                              "width: 5px; height: 5px; border: 0.5px solid black"):
         super().__init__()
-        self.main_button = button
+        self.button_style = style
+        self.main_button = widget
         self.parent_widget = parent_widget
         self.corner_buttons = {}
         self.create_resize_buttons()
-
+        self._start_drag_main_button_pos = None
+        self._dragging = None
         self._resizing = False
         self._resize_direction = None
         self.initial_geometry = QRect()
@@ -25,13 +29,16 @@ class SizeBox(QObject):
             'top_left': (0, 0),
             'top_right': (self.main_button.width(), 0),
             'bottom_left': (0, self.main_button.height()),
-            'bottom_right': (self.main_button.width(), self.main_button.height())
+            'bottom_right': (self.main_button.width(), self.main_button.height()),
+            'top': (self.main_button.width() // 2, 0),
+            'bottom': (self.main_button.width() // 2, self.main_button.height()),
+            'left': (0, self.main_button.height() // 2),
+            'right': (self.main_button.width(), self.main_button.height() // 2),
         }
 
         for name, (x, y) in positions.items():
             btn = QPushButton(self.parent_widget)
-            btn.setStyleSheet(
-                "background-color: #fff; border-radius: 0px; width: 5px; height: 5px; border: 0.5px solid black")
+            btn.setStyleSheet(self.button_style)
             btn.move(self.main_button.x() + x - 5, self.main_button.y() + y - 5)
             btn.setCursor(QCursor(self.get_resize_cursor(name)))
             btn.show()
@@ -41,12 +48,17 @@ class SizeBox(QObject):
             btn.mouseReleaseEvent = lambda e, _btn=btn: self.on_release_resize(e, _btn)
             self.corner_buttons[name] = btn
 
-    def get_resize_cursor(self, direction):
+    @staticmethod
+    def get_resize_cursor(direction):
         cursors = {
             'top_left': Qt.SizeFDiagCursor,
             'top_right': Qt.SizeBDiagCursor,
             'bottom_left': Qt.SizeBDiagCursor,
-            'bottom_right': Qt.SizeFDiagCursor
+            'bottom_right': Qt.SizeFDiagCursor,
+            'top': Qt.SizeVerCursor,
+            'bottom': Qt.SizeVerCursor,
+            'left': Qt.SizeHorCursor,
+            'right': Qt.SizeHorCursor
         }
         return cursors[direction]
 
@@ -70,7 +82,7 @@ class SizeBox(QObject):
 
             new_geo = self.calculate_new_geometry(x, y, w, h, delta)
             self.main_button.setGeometry(new_geo)
-            self.update_resize_buttons()
+            self.updatePos()
 
     def calculate_new_geometry(self, x, y, w, h, delta):
         direction = self._resize_direction
@@ -92,19 +104,34 @@ class SizeBox(QObject):
         elif direction == 'bottom_right':
             new_w = max(w + delta.x(), 1)
             new_h = max(h + delta.y(), 1)
+        elif direction == 'top':
+            new_h = max(h - delta.y(), 1)
+            new_y = y + (h - new_h)
+        elif direction == 'bottom':
+            new_h = max(h + delta.y(), 1)
+        elif direction == 'left':
+            new_w = max(w - delta.x(), 1)
+            new_x = x + (w - new_w)
+        elif direction == 'right':
+            new_w = max(w + delta.x(), 1)
 
         return QRect(new_x, new_y, new_w, new_h)
 
-    def on_release_resize(self, event, button):
+    def on_release_resize(self, _event, button):
         self._resizing = False
         button.releaseMouse()
 
-    def update_resize_buttons(self):
+    def updatePos(self):
         m = self.main_button
         self.corner_buttons['top_left'].move(m.x() - 5, m.y() - 5)
         self.corner_buttons['top_right'].move(m.x() + m.width() - 5, m.y() - 5)
         self.corner_buttons['bottom_left'].move(m.x() - 5, m.y() + m.height() - 5)
         self.corner_buttons['bottom_right'].move(m.x() + m.width() - 5, m.y() + m.height() - 5)
+
+        self.corner_buttons['top'].move(m.x() + m.width() // 2 - 5, m.y() - 5)
+        self.corner_buttons['bottom'].move(m.x() + m.width() // 2 - 5, m.y() + m.height() - 5)
+        self.corner_buttons['left'].move(m.x() - 5, m.y() + m.height() // 2 - 5)
+        self.corner_buttons['right'].move(m.x() + m.width() - 5, m.y() + m.height() // 2 - 5)
 
     def eventFilter(self, source, event):
         if source == self.main_button:
@@ -120,7 +147,7 @@ class SizeBox(QObject):
                     delta = current_global_pos - self._drag_start_global_pos
                     new_pos = self._start_drag_main_button_pos + delta
                     self.main_button.move(new_pos)
-                    self.update_resize_buttons()
+                    self.updatePos()
                     return True
             elif event.type() == QEvent.MouseButtonRelease:
                 if event.button() == Qt.LeftButton:
@@ -128,15 +155,15 @@ class SizeBox(QObject):
                     return True
         return super().eventFilter(source, event)
 
-    def show_resize_controls(self):
+    def show(self):
         for btn in self.corner_buttons.values():
             btn.show()
 
-    def hide_resize_controls(self):
+    def hide(self):
         for btn in self.corner_buttons.values():
             btn.hide()
 
-    def destroy_resize_controls(self):
+    def destroy(self):
         for btn in self.corner_buttons.values():
             btn.deleteLater()
         self.corner_buttons.clear()
