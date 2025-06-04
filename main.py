@@ -18,10 +18,12 @@ class DraggableHelper:
     def __init__(self, widget, api, parent_window=None, snap_x=None, snap_y=None, snap_threshold=10,
                  style="background-color: black;;",
                  allow_horizontal_drag=[None, True], allow_vertical_drag=[None, True],
-                 name=None):
+                 name=None, on_top = False):
+
         if name:
             api.globals.globals(name, self)
         self.widget = widget
+        self.on_top = on_top
         self.parent_window = parent_window
         self.snap_x = snap_x if isinstance(snap_x, (list, tuple)) else [snap_x] if snap_x is not None else []
         self.snap_y = snap_y if isinstance(snap_y, (list, tuple)) else [snap_y] if snap_y is not None else []
@@ -70,6 +72,8 @@ class DraggableHelper:
                 event.ignore()
 
         def mouseMoveEvent(event):
+            if self.on_top:
+                self.widget.raise_()
             if event.buttons() & Qt.LeftButton and hasattr(self, '_drag_pos'):
                 new_pos = event.globalPos() - self._drag_pos
 
@@ -292,6 +296,7 @@ class SizeBox(QObject):
             self.updatePos()
 
     def calculate_new_geometry(self, x, y, w, h, delta):
+        self.raise_()
         direction = self._resize_direction
         new_x, new_y, new_w, new_h = x, y, w, h
 
@@ -361,6 +366,10 @@ class SizeBox(QObject):
                     self._dragging = False
                     return True
         return super().eventFilter(source, event)
+
+    def raise_(self):
+        for btn in self.corner_buttons.values():
+            btn.raise_()
 
     def show(self):
         for btn in self.corner_buttons.values():
