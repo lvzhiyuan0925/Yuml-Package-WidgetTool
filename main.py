@@ -297,6 +297,7 @@ class SizeBox(QObject):
 
     def calculate_new_geometry(self, x, y, w, h, delta):
         self.raise_()
+        self.main_button.raise_()
         direction = self._resize_direction
         new_x, new_y, new_w, new_h = x, y, w, h
 
