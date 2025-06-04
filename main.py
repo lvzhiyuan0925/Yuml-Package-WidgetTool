@@ -7,7 +7,6 @@ from PyQt5.QtGui import QCursor
 
 Y_NAMESPACE = YNameSpace
 
-
 class Init(YLoad):
     def __init__(self, raw):
         super().__init__(raw)
@@ -17,7 +16,7 @@ class Init(YLoad):
 
 class DraggableHelper:
     def __init__(self, widget, api, parent_window=None, snap_x=None, snap_y=None, snap_threshold=10,
-                 style="background-color: #FF5722;",
+                 style="background-color: black;;",
                  allow_horizontal_drag=[None, True], allow_vertical_drag=[None, True],
                  name=None):
         if name:
